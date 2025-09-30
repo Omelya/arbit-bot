@@ -97,8 +97,12 @@ class ArbitBotServer {
         const exchangeServices = this.exchangeManager!.getAllExchangeServices();
 
         exchangeServices.forEach((service, exchangeName) => {
-            service.on('priceUpdate', (priceData) => {
-                this.arbitrageService!.handlePriceUpdate(priceData);
+            service.on('priceUpdate', (item) => {
+                this.arbitrageService!.handlePriceUpdate(item);
+            });
+
+            service.on('orderBookUpdate', (item) => {
+                this.arbitrageService!.handleOrderBookUpdate(item);
             });
 
             service.on('maxReconnectAttemptsReached', (exchangeName) => {

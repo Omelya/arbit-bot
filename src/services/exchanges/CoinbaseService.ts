@@ -1,27 +1,125 @@
 import { AbstractExchangeService } from './AbstractExchangeService';
 import WebSocket from 'ws';
-import { ExchangePrice } from '../../types';
+import {ExchangePrice, OrderBookState} from '../../types';
+import {
+    CoinbaseOrderBookSnapshot,
+    CoinbaseOrderBookUpdate,
+    CoinbaseTickerTopic,
+    CoinbaseTopicName
+} from "../../types/coinbase";
 
 export class CoinbaseService extends AbstractExchangeService {
     protected wsUrl: string = 'wss://ws-feed.exchange.coinbase.com';
     protected name: string = 'coinbase';
     private heartbeatInterval?: NodeJS.Timeout;
 
-    protected handlePriceUpdate(data: any): void {
-        try {
-            if (data.type === 'subscriptions' || data.type === 'heartbeat') {
-                return;
-            }
+    protected handleMessage(data: any): void {
+        if (data.type === 'subscriptions' || data.type === 'heartbeat') {
+            return;
+        }
 
-            if (data.type === 'ticker') {
-                const priceData = this.normalizePrice(data);
-                if (priceData && this.validatePriceData(priceData)) {
-                    this.emitPriceUpdate(priceData);
-                }
+        if (data.type === CoinbaseTopicName.TICKER) {
+            this.handlePriceUpdate(data);
+        } else if (
+            data.type === CoinbaseTopicName.ORDERBOOK ||
+            data.type === CoinbaseTopicName.SNAPSHOT
+        ) {
+            this.handleOrderBookUpdate(data);
+        }
+    }
+
+    protected handlePriceUpdate(data: CoinbaseTickerTopic): void {
+        try {
+            const priceData = this.normalizePrice(data);
+            if (priceData && this.validatePriceData(priceData)) {
+                this.emitPriceUpdate(priceData);
             }
         } catch (error) {
             console.error(`Error handling price update from ${this.name}:`, error);
         }
+    }
+
+    private handleOrderBookUpdate(data: any): void {
+        try {
+            if (data.type === 'snapshot') {
+                this.handleOrderBookSnapshot(data);
+            } else if (data.type === 'l2update') {
+                this.handleOrderBookDelta(data);
+            }
+        } catch (error) {
+            console.error(`❌ Error handling Coinbase Order Book:`, error);
+        }
+    }
+
+    private handleOrderBookSnapshot(data: CoinbaseOrderBookSnapshot): void {
+        const symbol = this.formatSymbolToStandard(data.product_id);
+
+        const state: OrderBookState = {
+            symbol,
+            bids: new Map(),
+            asks: new Map(),
+            lastUpdateId: 0,
+            timestamp: new Date(data.time).getTime(),
+            isInitialized: true,
+        };
+
+        if (data.bids && Array.isArray(data.bids)) {
+            for (const [priceStr, sizeStr] of data.bids) {
+                const price = parseFloat(priceStr);
+                const size = parseFloat(sizeStr);
+
+                if (!isNaN(price) && !isNaN(size) && size > 0) {
+                    state.bids.set(price, size);
+                }
+            }
+        }
+
+        if (data.asks && Array.isArray(data.asks)) {
+            for (const [priceStr, sizeStr] of data.asks) {
+                const price = parseFloat(priceStr);
+                const size = parseFloat(sizeStr);
+
+                if (!isNaN(price) && !isNaN(size) && size > 0) {
+                    state.asks.set(price, size);
+                }
+            }
+        }
+
+        this.orderBookStates.set(symbol, state);
+        this.emitOrderBookUpdate(symbol, state);
+    }
+
+    private handleOrderBookDelta(data: CoinbaseOrderBookUpdate): void {
+        const symbol = this.formatSymbolToStandard(data.product_id);
+        const state = this.orderBookStates.get(symbol);
+
+        if (!state || !state.isInitialized) {
+            console.warn(`⚠️ Received l2update for ${symbol} before snapshot, ignoring`);
+            return;
+        }
+
+        if (data.changes && Array.isArray(data.changes)) {
+            for (const [side, priceStr, sizeStr] of data.changes) {
+                const price = parseFloat(priceStr);
+                const size = parseFloat(sizeStr);
+
+                if (isNaN(price) || isNaN(size)) {
+                    console.warn(`⚠️ Invalid price or size: ${priceStr}, ${sizeStr}`);
+                    continue;
+                }
+
+                const bookSide = side === 'buy' ? state.bids : state.asks;
+
+                size === 0
+                    ? bookSide.delete(price)
+                    : bookSide.set(price, size);
+            }
+        }
+
+        state.timestamp = new Date(data.time).getTime();
+        state.lastUpdateId++;
+
+        this.emitOrderBookUpdate(symbol, state);
     }
 
     protected subscribeToSymbols(ws: WebSocket, symbols: string[]): void {
@@ -30,7 +128,7 @@ export class CoinbaseService extends AbstractExchangeService {
         const subscribeMessage = {
             type: 'subscribe',
             product_ids: coinbaseProducts,
-            channels: ['ticker']
+            channels: ['ticker', 'level2_batch'],
         };
 
         ws.send(JSON.stringify(subscribeMessage));

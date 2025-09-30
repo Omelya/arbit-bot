@@ -1,10 +1,14 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import { ExchangePrice } from '../../types';
+import { ExchangePrice, OrderBookMetrics, OrderBookState } from '../../types';
 
 export abstract class AbstractExchangeService extends EventEmitter {
     protected abstract wsUrl: string;
     protected abstract name: string;
+    protected readonly maxDepth: number = 50;
+    protected readonly updateThrottle: number = 100;
+    protected lastEmit: Map<string, number> = new Map();
+    protected orderBookStates: Map<string, OrderBookState> = new Map();
     protected ws: WebSocket | null = null;
     protected isConnected: boolean = false;
     protected reconnectAttempts: number = 0;
@@ -13,7 +17,7 @@ export abstract class AbstractExchangeService extends EventEmitter {
 
     protected abstract subscribeToSymbols(ws: WebSocket, symbols: string[]): void;
 
-    protected abstract handlePriceUpdate(data: any): void;
+    protected abstract handleMessage(data: any): void;
 
     public async connectWebSockets(symbols: string[]): Promise<void> {
         if (this.isConnected) {
@@ -78,7 +82,7 @@ export abstract class AbstractExchangeService extends EventEmitter {
                 this.ws.on('message', (data: Buffer) => {
                     try {
                         const parsed = JSON.parse(data.toString());
-                        this.handlePriceUpdate(parsed);
+                        this.handleMessage(parsed);
                     } catch (error) {
                         console.error(`Error parsing message from ${this.name}:`, error);
                     }
@@ -135,6 +139,58 @@ export abstract class AbstractExchangeService extends EventEmitter {
 
     protected emitPriceUpdate(priceData: ExchangePrice): void {
         this.emit('priceUpdate', priceData);
+    }
+
+    protected emitOrderBookUpdate(symbol: string, state: OrderBookState): void {
+        const now = Date.now();
+        const lastEmit = this.lastEmit.get(symbol) || 0;
+
+        if (now - lastEmit < this.updateThrottle) {
+            return;
+        }
+
+        const orderBook = this.stateToOrderBook(state);
+
+        this.emit('orderBookUpdate', {
+            exchange: this.name,
+            symbol,
+            orderBook,
+        });
+
+        this.lastEmit.set(symbol, now);
+    }
+
+    protected stateToOrderBook(state: OrderBookState): OrderBookMetrics {
+        const bids = Array.from(state.bids.entries())
+            .sort((a, b) => b[0] - a[0])
+            .slice(0, this.maxDepth);
+
+        const asks = Array.from(state.asks.entries())
+            .sort((a, b) => a[0] - b[0])
+            .slice(0, this.maxDepth);
+
+        const bestBid = bids[0]?.[0] || 0;
+        const bestAsk = asks[0]?.[0] || 0;
+        const midPrice = (bestBid + bestAsk) / 2;
+        const spread = bestAsk - bestBid;
+        const spreadPercent = midPrice > 0 ? (spread / midPrice) * 100 : 0;
+
+        const totalBidVolume = bids.reduce((sum, [_, vol]) => sum + vol, 0);
+        const totalAskVolume = asks.reduce((sum, [_, vol]) => sum + vol, 0);
+
+        return {
+            symbol: state.symbol,
+            bids: bids as [number, number][],
+            asks: asks as [number, number][],
+            timestamp: state.timestamp,
+            datetime: new Date(state.timestamp).toISOString(),
+            midPrice,
+            spread,
+            spreadPercent,
+            totalBidVolume,
+            totalAskVolume,
+            updateId: state.lastUpdateId,
+        };
     }
 
     protected validatePriceData(data: any): boolean {

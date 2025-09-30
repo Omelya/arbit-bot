@@ -14,6 +14,17 @@ export interface ArbitrageOpportunity {
         sell: number;
         total: number;
     };
+    buySlippage: number;
+    sellSlippage: number;
+    effectiveBuyPrice: number;
+    effectiveSellPrice: number;
+    confidence: number;
+    liquidityScore: number;
+    spreadImpact: number;
+    availableLiquidity?: number;
+    recommendedTradeSize?: number;
+    netProfitAfterSlippage: number;
+    profitPercentAfterSlippage: number;
 }
 
 export interface ArbitrageConfig {
@@ -21,4 +32,10 @@ export interface ArbitrageConfig {
     maxInvestment: number;
     enabledExchanges: string[];
     symbols: string[];
+}
+
+export interface SlippageResult {
+    slippage: number;
+    effectivePrice: number;
+    feasible: boolean;
 }

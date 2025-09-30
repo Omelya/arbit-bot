@@ -24,3 +24,21 @@ export interface OrderBook {
     timestamp: number;
     datetime: string;
 }
+
+export interface OrderBookState {
+    symbol: string;
+    bids: Map<number, number>;  // price -> volume
+    asks: Map<number, number>;  // price -> volume
+    lastUpdateId: number;
+    timestamp: number;
+    isInitialized: boolean;     // Чи отримали snapshot
+}
+
+export interface OrderBookMetrics extends OrderBook {
+    midPrice: number;
+    spread: number;
+    spreadPercent: number;
+    totalBidVolume: number;
+    totalAskVolume: number;
+    updateId: number;
+}
