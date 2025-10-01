@@ -59,7 +59,7 @@ export class ArbitrageService extends EventEmitter {
     }): void {
         const key = this.getKey(data.exchange, data.symbol);
 
-        const cache: OrderBookMetrics & { exchange: string } = {
+        const cache: OrderBookMetrics = {
             symbol: data.symbol,
             exchange: data.exchange,
             bids: data.orderBook.bids || [],
@@ -75,6 +75,15 @@ export class ArbitrageService extends EventEmitter {
         };
 
         this.orderBooks.set(key, cache);
+    }
+
+    public handleOrderBookInvalidated(data: {
+        exchange: string;
+        symbol: string;
+    }): void {
+        const key = this.getKey(data.exchange, data.symbol);
+
+        this.orderBooks.delete(key);
     }
 
     private calculateOpportunity(
@@ -153,7 +162,7 @@ export class ArbitrageService extends EventEmitter {
         if (!buyOrderBook || !sellOrderBook) return null;
 
         if (this.areOrderBooksStale(buyOrderBook, sellOrderBook)) {
-            console.warn(`Order Book too old for ${buyPrice.symbol}`);
+            console.warn(`Order Book too old for ${buyPrice.symbol}, exchanges ${buyOrderBook.exchange}, ${sellOrderBook.exchange}`);
             return null;
         }
 
@@ -526,5 +535,9 @@ export class ArbitrageService extends EventEmitter {
 
     public getAllPrices(): ExchangePrice[] {
         return Array.from(this.prices.values());
+    }
+
+    public getAllOrderBooks(): OrderBookMetrics[] {
+        return Array.from(this.orderBooks.values());
     }
 }

@@ -3,10 +3,12 @@ import { ArbitrageService } from '../services/ArbitrageService';
 import { ApiResponse } from '../types';
 import {ExchangeManager} from "../services/exchanges/ExchangeManager";
 import {WebSocketService} from "../services/WebSocketService";
+import {TriangularBybitService} from "../services/TriangularBybitService";
 
 export function apiRoutes(
     arbitrageService: ArbitrageService,
     exchangeManager: ExchangeManager,
+    triangularService: TriangularBybitService,
     wsService: WebSocketService,
 ): Router {
     const router = Router();
@@ -122,6 +124,32 @@ export function apiRoutes(
         }
     });
 
+    router.get('/orderbook', (req: Request, res: Response) => {
+        try {
+            const symbol = req.query.symbol as string;
+            const exchange = req.query.exchange as string;
+
+            let orderBooks = arbitrageService.getAllOrderBooks();
+
+            if (symbol) {
+                orderBooks = orderBooks.filter(p => p.symbol === symbol);
+            }
+
+            if (exchange) {
+                orderBooks = orderBooks.filter(p => p.exchange === exchange);
+            }
+
+            sendResponse(res, {
+                orderBooks,
+                count: orderBooks.length,
+                lastUpdate: orderBooks.length > 0 ? Math.max(...orderBooks.map(p => p.timestamp)) : null
+            });
+        } catch (error) {
+            console.error('Error fetching prices:', error);
+            sendResponse(res, null, false, 'Failed to fetch prices');
+        }
+    });
+
     router.get('/orderbook/:exchange/:symbol', async (req: Request, res: Response) => {
         try {
             const { exchange, symbol } = req.params;
@@ -208,6 +236,45 @@ export function apiRoutes(
         } catch (error) {
             sendResponse(res, null, false, 'Failed to fetch config');
         }
+    });
+
+    router.get('/triangular/opportunities', (_, res) => {
+        const opportunities = triangularService!.getOpportunities();
+        res.json({
+            success: true,
+            data: {
+                opportunities,
+                count: opportunities.length
+            },
+            timestamp: Date.now()
+        });
+    });
+
+    router.get('/triangular/stats', (_, res) => {
+        const stats = triangularService!.getStats();
+        res.json({
+            success: true,
+            data: stats,
+            timestamp: Date.now()
+        });
+    });
+
+    router.get('/triangular/opportunities/:id', (req, res) => {
+        const opportunity = triangularService!.getOpportunity(req.params.id);
+
+        if (!opportunity) {
+            return res.status(404).json({
+                success: false,
+                error: 'Opportunity not found',
+                timestamp: Date.now()
+            });
+        }
+
+        res.json({
+            success: true,
+            data: opportunity,
+            timestamp: Date.now()
+        });
     });
 
     router.use((error: Error, _: Request, res: Response, __: any) => {

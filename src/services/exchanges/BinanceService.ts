@@ -1,29 +1,33 @@
 import { AbstractExchangeService } from './AbstractExchangeService';
 import WebSocket from 'ws';
-import {ExchangePrice, OrderBookMetrics, OrderBookState} from '../../types';
-import {BinanceOrderBookTopic, BinanceTickerTopic, BinanceTopicName} from "../../types/binance";
+import {ExchangePrice, OrderBookState} from '../../types';
+import {
+    BinanceDepthSnapshotTopic,
+    BinanceDepthUpdateTopic,
+    BinanceTickerTopic,
+    BinanceTopicName,
+    OrderBookBuffer,
+} from '../../types/binance';
 
 export class BinanceService extends AbstractExchangeService {
     protected wsUrl: string = 'wss://stream.binance.com:9443/ws';
     protected name: string = 'binance';
+    private restBaseUrl: string = 'https://api.binance.com';
+    private orderBookBuffers: Map<string, OrderBookBuffer> = new Map();
 
     protected handleMessage(data: any): void {
-        if (data.result !== undefined) {
+        if (data.result !== undefined || data.id !== undefined) {
             return;
         }
 
-        if (data.stream) {
-            if (data.stream.includes(BinanceTopicName.TICKER)) {
-                this.handlePriceUpdate(data);
-            }
-
-            if (data.stream.includes(BinanceTopicName.ORDERBOOK)) {
-                this.handleOrderBookUpdate(data);
-            }
+        if (data.e === BinanceTopicName.TICKER) {
+            this.handlePriceUpdate(data);
+        } else if (data.e === BinanceTopicName.ORDERBOOK) {
+            this.handleDepthUpdate(data);
         }
     }
 
-    protected handlePriceUpdate(data: BinanceTickerTopic['data']): void {
+    protected handlePriceUpdate(data: BinanceTickerTopic): void {
         try {
             const priceData = this.normalizePrice(data);
             if (priceData && this.validatePriceData(priceData)) {
@@ -34,45 +38,155 @@ export class BinanceService extends AbstractExchangeService {
         }
     }
 
-    private handleOrderBookUpdate(item: BinanceOrderBookTopic): void {
-        const {stream, data} = item;
-        const symbol = this.extractSymbolFromTopic(stream);
+    private async handleDepthUpdate(data: BinanceDepthUpdateTopic): Promise<void> {
+        const symbol = this.formatSymbolToStandard(data.s);
+        let buffer = this.orderBookBuffers.get(symbol);
 
-        if (!symbol) {
-            console.warn(`⚠️ Unable to parse symbol from topic ${stream}`);
+        if (!buffer) {
+            buffer = {
+                events: [],
+                isInitialized: false,
+                lastUpdateId: 0,
+            };
+
+            this.orderBookBuffers.set(symbol, buffer);
+
+            await this.initializeOrderBook(symbol, buffer);
+        }
+
+        if (!buffer.isInitialized) {
+            buffer.events.push(data);
             return;
         }
 
-        this.orderBookStates.delete(symbol);
+        this.applyDepthUpdate(symbol, data, buffer);
+    }
 
-        const state: OrderBookState = {
-            symbol,
-            bids: new Map(),
-            asks: new Map(),
-            lastUpdateId: data.lastUpdateId || 0,
-            timestamp: Date.now(),
-            isInitialized: true,
-        };
+    private async initializeOrderBook(symbol: string, buffer: OrderBookBuffer): Promise<void> {
+        try {
+            const normalizedSymbol = this.normalizeSymbol(symbol);
+            const url = `${this.restBaseUrl}/api/v3/depth?symbol=${normalizedSymbol.toUpperCase()}&limit=1000`;
 
-        if (data.bids && Array.isArray(data.bids)) {
-            for (const [priceStr, volumeStr] of data.bids) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const snapshot = await response.json() as BinanceDepthSnapshotTopic;
+
+            const firstBufferedEvent = buffer.events[0];
+            if (firstBufferedEvent && snapshot.lastUpdateId >= firstBufferedEvent.U) {
+                buffer.events = buffer.events.filter(
+                    event => event.u > snapshot.lastUpdateId
+                );
+
+                const firstEvent = buffer.events[0];
+                if (firstEvent &&
+                    (firstEvent.U > snapshot.lastUpdateId + 1 ||
+                        firstEvent.u < snapshot.lastUpdateId)
+                ) {
+                    console.error(`❌ Gap in orderbook updates for ${symbol}, restarting...`);
+                    buffer.events = [];
+                    buffer.isInitialized = false;
+
+                    setTimeout(() => this.initializeOrderBook(symbol, buffer), 1000);
+                    return;
+                }
+            }
+
+            const state: OrderBookState = {
+                symbol,
+                bids: new Map(),
+                asks: new Map(),
+                lastUpdateId: snapshot.lastUpdateId,
+                timestamp: Date.now(),
+                isInitialized: true,
+            };
+
+            for (const [priceStr, volumeStr] of snapshot.bids) {
                 const price = parseFloat(priceStr);
                 const volume = parseFloat(volumeStr);
 
                 if (volume > 0) state.bids.set(price, volume);
             }
-        }
 
-        if (data.asks && Array.isArray(data.asks)) {
-            for (const [priceStr, volumeStr] of data.asks) {
+            for (const [priceStr, volumeStr] of snapshot.asks) {
                 const price = parseFloat(priceStr);
                 const volume = parseFloat(volumeStr);
+                if (volume > 0) {
+                    state.asks.set(price, volume);
+                }
+            }
 
-                if (volume > 0) state.asks.set(price, volume);
+            this.orderBookStates.set(symbol, state);
+            buffer.lastUpdateId = snapshot.lastUpdateId;
+            buffer.isInitialized = true;
+
+            for (const event of buffer.events) {
+                this.applyDepthUpdate(symbol, event, buffer);
+            }
+
+            buffer.events = [];
+
+            this.emitOrderBookUpdate(symbol, state);
+        } catch (error) {
+            console.error(`❌ Failed to initialize orderbook for ${symbol}:`, error);
+            buffer.isInitialized = false;
+
+            setTimeout(() => this.initializeOrderBook(symbol, buffer), 5000);
+        }
+    }
+
+    private applyDepthUpdate(
+        symbol: string,
+        data: BinanceDepthUpdateTopic,
+        buffer: OrderBookBuffer,
+    ): void {
+        const state = this.orderBookStates.get(symbol);
+        if (!state) {
+            console.warn(`⚠️ No state found for ${symbol}`);
+            return;
+        }
+
+        if (data.u <= buffer.lastUpdateId) {
+            return;
+        }
+
+        if (data.U > buffer.lastUpdateId + 1) {
+            console.error(`❌ Gap detected for ${symbol}: expected ${buffer.lastUpdateId + 1}, got ${data.U}. Restarting...`);
+            buffer.isInitialized = false;
+            buffer.events = [];
+
+            this.initializeOrderBook(symbol, buffer);
+            return;
+        }
+
+        for (const [priceStr, volumeStr] of data.b) {
+            const price = parseFloat(priceStr);
+            const volume = parseFloat(volumeStr);
+
+            if (volume === 0) {
+                state.bids.delete(price);
+            } else {
+                state.bids.set(price, volume);
             }
         }
 
-        this.orderBookStates.set(symbol, state);
+        for (const [priceStr, volumeStr] of data.a) {
+            const price = parseFloat(priceStr);
+            const volume = parseFloat(volumeStr);
+
+            if (volume === 0) {
+                state.asks.delete(price);
+            } else {
+                state.asks.set(price, volume);
+            }
+        }
+
+        buffer.lastUpdateId = data.u;
+        state.lastUpdateId = data.u;
+        state.timestamp = data.E;
+
         this.emitOrderBookUpdate(symbol, state);
     }
 
@@ -84,7 +198,7 @@ export class BinanceService extends AbstractExchangeService {
 
         const orderBook = symbols.map(symbol => {
             const normalizedSymbol = this.normalizeSymbol(symbol);
-            return `${normalizedSymbol}@depth20`;
+            return `${normalizedSymbol}@depth@100ms`;
         });
 
         const subscribeMessage = {
@@ -100,7 +214,7 @@ export class BinanceService extends AbstractExchangeService {
         console.log(`📡 Subscribed to Binance streams: ${tickers.join(', ')}`);
     }
 
-    private normalizePrice(data: BinanceTickerTopic['data']): ExchangePrice | null {
+    private normalizePrice(data: BinanceTickerTopic): ExchangePrice | null {
         if (data.s) {
             const symbol = data.s as string;
 
@@ -131,19 +245,15 @@ export class BinanceService extends AbstractExchangeService {
         return symbol;
     }
 
-    private extractSymbolFromTopic(topic: string): string | null {
-        // topic format: "btcusdt@depth20"
-        const parts = topic.split('@');
-        if (parts.length >= 3) {
-            return this.formatSymbolToStandard(parts[2]).toUpperCase();
-        }
-
-        return null;
-    }
-
     protected normalizeSymbol(symbol: string): string {
         return symbol
             .replace('/', '')
             .toLowerCase();
+    }
+
+    protected clearState() {
+        super.clearState();
+
+        this.orderBookBuffers.clear();
     }
 }

@@ -99,6 +99,15 @@ export abstract class AbstractExchangeService extends EventEmitter {
                         console.error(`❌ Max reconnection attempts reached for ${this.name}`);
                         this.emit('maxReconnectAttemptsReached', this.name);
                     }
+
+                    for (const [symbol] of this.orderBookStates.entries()) {
+                        this.emit('orderBookInvalidate', {
+                            exchange: this.name,
+                            symbol,
+                        });
+                    }
+
+                    this.clearState();
                 });
 
                 this.ws.on('error', (error) => {
@@ -179,6 +188,7 @@ export abstract class AbstractExchangeService extends EventEmitter {
         const totalAskVolume = asks.reduce((sum, [_, vol]) => sum + vol, 0);
 
         return {
+            exchange: this.name,
             symbol: state.symbol,
             bids: bids as [number, number][],
             asks: asks as [number, number][],
@@ -200,5 +210,32 @@ export abstract class AbstractExchangeService extends EventEmitter {
             data.price > 0 &&
             typeof data.symbol === 'string' &&
             data.symbol.length > 0;
+    }
+
+    protected sendSubscriptionInChunks(
+        ws: WebSocket,
+        topics: string[],
+        chunkSize: number,
+        formatMessage: (chunk: string[]) => any,
+    ): void {
+        const totalChunks = Math.ceil(topics.length / chunkSize);
+
+        for (let i = 0; i < topics.length; i += chunkSize) {
+            const chunk = topics.slice(i, i + chunkSize);
+            const message = formatMessage(chunk);
+            const chunkNumber = Math.floor(i / chunkSize) + 1;
+
+            ws.send(JSON.stringify(message));
+
+            console.log(
+                `📡 [${this.name}] Subscription chunk ${chunkNumber}/${totalChunks}: ` +
+                `${chunk.length} topics`
+            );
+        }
+    }
+
+    protected clearState(): void {
+        this.orderBookStates.clear();
+        this.lastEmit.clear();
     }
 }

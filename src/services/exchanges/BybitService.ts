@@ -10,14 +10,6 @@ export class BybitService extends AbstractExchangeService {
 
     protected handleMessage(data: any) {
         if (data.op || data.success !== undefined) {
-            if (data.op === 'subscribe' && data.success) {
-                console.log(`✅ Successfully subscribed to Bybit: ${data.conn_id}`);
-            }
-            return;
-        }
-
-        if (data.op === 'pong') {
-            console.log(`🏓 Received pong from ${this.name}`);
             return;
         }
 
@@ -68,26 +60,19 @@ export class BybitService extends AbstractExchangeService {
     }
 
     protected subscribeToSymbols(ws: WebSocket, symbols: string[]): void {
-        const tickers = symbols.map(symbol => {
-            const bybitSymbol = this.normalizeSymbol(symbol);
-            return `tickers.${bybitSymbol}`;
-        });
+        const allTopics = [
+            ...symbols.map(s => `tickers.${this.normalizeSymbol(s)}`),
+            ...symbols.map(s => `orderbook.50.${this.normalizeSymbol(s)}`),
+        ];
 
-        const orderBook = symbols.map(symbol => {
-            const bybitSymbol = this.normalizeSymbol(symbol);
-            return `orderbook.50.${bybitSymbol}`;
-        });
+        this.sendSubscriptionInChunks(
+            ws,
+            allTopics,
+            10,
+            (chunk) => ({ op: 'subscribe', args: chunk }),
+        );
 
-        const subscribeMessage = {
-            op: 'subscribe',
-            args: [
-                ...tickers,
-                ...orderBook,
-            ],
-        };
-
-        ws.send(JSON.stringify(subscribeMessage));
-        console.log(`📡 Subscribed to Bybit topics: ${tickers.join(', ')}`);
+        console.log(`📡 Subscribed to Bybit topics: ${allTopics.join(', ')}`);
 
         this.setupBybitPing(ws);
     }
@@ -210,9 +195,7 @@ export class BybitService extends AbstractExchangeService {
 
         this.pingInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
-                const pingMessage = {op: 'ping'};
-
-                ws.send(JSON.stringify(pingMessage));
+                ws.send(JSON.stringify({op: 'ping'}));
             }
         }, 20000);
     }
