@@ -8,6 +8,7 @@ import { WebSocketService } from './services/WebSocketService';
 import { apiRoutes } from './routes/api';
 import { ExchangeConfig, ArbitrageConfig } from './types';
 import { ExchangeManager } from './services/exchanges/ExchangeManager';
+import {TriangularBybitService} from "./services/TriangularBybitService";
 
 config();
 
@@ -16,6 +17,7 @@ class ArbitBotServer {
     private readonly port: number;
     private exchangeManager?: ExchangeManager;
     private arbitrageService?: ArbitrageService;
+    private triangularService?: TriangularBybitService;
     private wsService?: WebSocketService;
 
     constructor() {
@@ -53,11 +55,20 @@ class ArbitBotServer {
 
         this.exchangeManager = new ExchangeManager(exchangeConfigs);
         this.arbitrageService = new ArbitrageService(arbitrageConfig);
+        this.triangularService = new TriangularBybitService();
         this.wsService = new WebSocketService(8080);
     }
 
     private setupRoutes(): void {
-        this.app.use('/api', apiRoutes(this.arbitrageService!, this.exchangeManager!, this.wsService!));
+        this.app.use(
+            '/api',
+            apiRoutes(
+                this.arbitrageService!,
+                this.exchangeManager!,
+                this.triangularService!,
+                this.wsService!,
+            ),
+        );
 
         this.app.get('/ws-status', (_, res) => {
             res.json({
@@ -86,7 +97,10 @@ class ArbitBotServer {
                     '/ws-status',
                     '/api/opportunities',
                     '/api/prices',
-                    '/api/stats'
+                    '/api/stats',
+                    '/api/orderbook',
+                    '/api/triangular/opportunities',
+                    '/api/triangular/stats',
                 ],
                 timestamp: Date.now()
             });
@@ -99,11 +113,23 @@ class ArbitBotServer {
         exchangeServices.forEach((service, exchangeName) => {
             service.on('priceUpdate', (item) => {
                 this.arbitrageService!.handlePriceUpdate(item);
+
+                if (exchangeName === 'bybit') {
+                    this.triangularService!.handlePriceUpdate(item);
+                }
             });
 
             service.on('orderBookUpdate', (item) => {
                 this.arbitrageService!.handleOrderBookUpdate(item);
+
+                if (exchangeName === 'bybit') {
+                    this.triangularService!.handleOrderBookUpdate(item);
+                }
             });
+
+            service.on('orderBookInvalidate', (item) => {
+                this.arbitrageService!.handleOrderBookInvalidated(item);
+            })
 
             service.on('maxReconnectAttemptsReached', (exchangeName) => {
                 console.error(`❌ Exchange ${exchangeName} failed to reconnect after maximum attempts`);
@@ -118,7 +144,6 @@ class ArbitBotServer {
 
         this.arbitrageService!.on('opportunityFound', (opportunity) => {
             this.wsService!.broadcast('arbitrage_opportunity', opportunity);
-            console.log(`💰 New opportunity: ${opportunity.symbol} - ${opportunity.profitPercent}%`);
         });
     }
 
@@ -126,7 +151,19 @@ class ArbitBotServer {
         try {
             this
                 .exchangeManager!
-                .createWebSockets(['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'ADA/USDT', 'AVAX/USDT']);
+                .createWebSockets([
+                    'BTC/USDT',
+                    'ETH/USDT',
+                    'SOL/USDT',
+                    'ADA/USDT',
+                    'AVAX/USDT',
+                    'ETH/BTC',
+                    'SOL/BTC',
+                    'XRP/USDT',
+                    'XRP/BTC',
+                    'LTC/USDT',
+                    'LTC/BTC',
+                ]);
 
             this.app.listen(this.port, () => {
                 console.log(`🚀 Server running on port ${this.port}`);

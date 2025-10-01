@@ -35,6 +35,7 @@ export interface OrderBookState {
 }
 
 export interface OrderBookMetrics extends OrderBook {
+    exchange: string;
     midPrice: number;
     spread: number;
     spreadPercent: number;
