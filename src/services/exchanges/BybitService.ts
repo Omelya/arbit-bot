@@ -2,6 +2,9 @@ import {AbstractExchangeService} from "./AbstractExchangeService";
 import WebSocket from "ws";
 import {ExchangePrice, OrderBookState} from "../../types";
 import {BybitOrderBookTopic, BybitTickerTopic, BybitTopicName, BybitTopicType} from "../../types/bybit";
+import {createChildLogger} from "../../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class BybitService extends AbstractExchangeService {
     protected name: string = 'bybit';
@@ -29,7 +32,7 @@ export class BybitService extends AbstractExchangeService {
         const symbol = this.extractSymbolFromTopic(topic);
 
         if (!symbol) {
-            console.warn(`⚠️ Cannot extract symbol from topic: ${topic}`);
+            logger.warn(`⚠️ Cannot extract symbol from topic: ${topic}`);
             return;
         }
 
@@ -39,10 +42,13 @@ export class BybitService extends AbstractExchangeService {
             } else if (type === BybitTopicType.DELTA) {
                 this.handleDelta(symbol, data);
             } else {
-                console.warn(`⚠️ Unknown Order Book type: ${type}`);
+                logger.warn(`⚠️ Unknown Order Book type: ${type}`);
             }
         } catch (error) {
-            console.error(`❌ Error handling Order Book update for ${symbol}:`, error);
+            logger.error({
+                msg: `❌ Error handling Order Book update for ${symbol}:`,
+                error,
+            });
         }
     }
 
@@ -55,7 +61,10 @@ export class BybitService extends AbstractExchangeService {
                 }
             }
         } catch (error) {
-            console.error(`Error handling price update from ${this.name}:`, error);
+            logger.error({
+                msg: `Error handling price update from ${this.name}:`,
+                error,
+            });
         }
     }
 
@@ -72,7 +81,7 @@ export class BybitService extends AbstractExchangeService {
             (chunk) => ({ op: 'subscribe', args: chunk }),
         );
 
-        console.log(`📡 Subscribed to Bybit topics: ${allTopics.join(', ')}`);
+        logger.info(`📡 Subscribed to Bybit topics: ${allTopics.join(', ')}`);
 
         this.setupBybitPing(ws);
     }
@@ -113,7 +122,7 @@ export class BybitService extends AbstractExchangeService {
         const state = this.orderBookStates.get(symbol);
 
         if (!state || !state.isInitialized) {
-            console.warn(`⚠️ Received delta for ${symbol} before snapshot, ignoring`);
+            logger.warn(`⚠️ Received delta for ${symbol} before snapshot, ignoring`);
             return;
         }
 

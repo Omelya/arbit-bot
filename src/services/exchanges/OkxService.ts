@@ -1,7 +1,10 @@
-import {AbstractExchangeService} from './AbstractExchangeService';
+import { AbstractExchangeService } from './AbstractExchangeService';
 import WebSocket from 'ws';
 import { ExchangePrice } from '../../types';
 import { OkxOrderBookTopic, OkxTickerTopic, OkxTopicName, OkxTopicType } from '../../types/okx';
+import { createChildLogger } from '../../utils/logger';
+
+const logger = createChildLogger(__filename);
 
 export class OkxService extends AbstractExchangeService {
     protected name: string = 'okx';
@@ -32,7 +35,10 @@ export class OkxService extends AbstractExchangeService {
                 }
             }
         } catch (error) {
-            console.error(`Error handling price update from ${this.name}:`, error);
+            logger.error({
+                msg: `Error handling price update from ${this.name}:`,
+                error,
+            });
         }
     }
 
@@ -41,7 +47,7 @@ export class OkxService extends AbstractExchangeService {
         const instId = arg?.instId;
 
         if (!instId) {
-            console.warn(`⚠️ Missing instId in OKX Order Book message`);
+            logger.warn(`⚠️ Missing instId in OKX Order Book message`);
             return;
         }
 
@@ -63,7 +69,7 @@ export class OkxService extends AbstractExchangeService {
                 };
             } else {
                 if (!state) {
-                    console.warn(`⚠️ Received update for ${symbol} before snapshot, creating new state`);
+                    logger.warn(`⚠️ Received update for ${symbol} before snapshot, creating new state`);
                     state = {
                         symbol,
                         bids: new Map(),
@@ -111,7 +117,10 @@ export class OkxService extends AbstractExchangeService {
             this.orderBookStates.set(symbol, state);
             this.emitOrderBookUpdate(symbol, state);
         } catch (error: any) {
-            console.error(`❌ Error handling OKX Order Book for ${symbol}:`, error);
+            logger.error({
+                msg: `❌ Error handling OKX Order Book for ${symbol}:`,
+                error,
+            });
         }
     }
 
@@ -136,7 +145,7 @@ export class OkxService extends AbstractExchangeService {
         };
 
         ws.send(JSON.stringify(subscribeMessage));
-        console.log(`📡 Subscribed to OKX products: ${tickerArgs.join(', ')}`);
+        logger.info(`📡 Subscribed to OKX products: ${tickerArgs.join(', ')}`);
     }
 
     private normalizePrice(data: any): ExchangePrice | null {

@@ -8,6 +8,9 @@ import {
     BinanceTopicName,
     OrderBookBuffer,
 } from '../../types/binance';
+import {createChildLogger} from "../../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class BinanceService extends AbstractExchangeService {
     protected wsUrl: string = 'wss://stream.binance.com:9443/ws';
@@ -34,7 +37,10 @@ export class BinanceService extends AbstractExchangeService {
                 this.emitPriceUpdate(priceData);
             }
         } catch (error) {
-            console.error(`Error handling price update from ${this.name}:`, error);
+            logger.error({
+                msg: `Error handling price update from ${this.name}:`,
+                error,
+            });
         }
     }
 
@@ -85,7 +91,7 @@ export class BinanceService extends AbstractExchangeService {
                     (firstEvent.U > snapshot.lastUpdateId + 1 ||
                         firstEvent.u < snapshot.lastUpdateId)
                 ) {
-                    console.error(`❌ Gap in orderbook updates for ${symbol}, restarting...`);
+                    logger.error(`❌ Gap in orderbook updates for ${symbol}, restarting...`);
                     buffer.events = [];
                     buffer.isInitialized = false;
 
@@ -130,7 +136,11 @@ export class BinanceService extends AbstractExchangeService {
 
             this.emitOrderBookUpdate(symbol, state);
         } catch (error) {
-            console.error(`❌ Failed to initialize orderbook for ${symbol}:`, error);
+            logger.error({
+                msg: `❌ Failed to initialize orderbook for ${symbol}:`,
+                error,
+            });
+
             buffer.isInitialized = false;
 
             setTimeout(() => this.initializeOrderBook(symbol, buffer), 5000);
@@ -144,7 +154,7 @@ export class BinanceService extends AbstractExchangeService {
     ): void {
         const state = this.orderBookStates.get(symbol);
         if (!state) {
-            console.warn(`⚠️ No state found for ${symbol}`);
+            logger.warn(`⚠️ No state found for ${symbol}`);
             return;
         }
 
@@ -153,7 +163,7 @@ export class BinanceService extends AbstractExchangeService {
         }
 
         if (data.U > buffer.lastUpdateId + 1) {
-            console.error(`❌ Gap detected for ${symbol}: expected ${buffer.lastUpdateId + 1}, got ${data.U}. Restarting...`);
+            logger.error(`❌ Gap detected for ${symbol}: expected ${buffer.lastUpdateId + 1}, got ${data.U}. Restarting...`);
             buffer.isInitialized = false;
             buffer.events = [];
 
@@ -211,7 +221,7 @@ export class BinanceService extends AbstractExchangeService {
         };
 
         ws.send(JSON.stringify(subscribeMessage));
-        console.log(`📡 Subscribed to Binance streams: ${tickers.join(', ')}`);
+        logger.info(`📡 Subscribed to Binance streams: ${tickers.join(', ')}`);
     }
 
     private normalizePrice(data: BinanceTickerTopic): ExchangePrice | null {

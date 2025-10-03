@@ -7,6 +7,9 @@ import {
     CoinbaseTickerTopic,
     CoinbaseTopicName
 } from "../../types/coinbase";
+import {createChildLogger} from "../../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class CoinbaseService extends AbstractExchangeService {
     protected wsUrl: string = 'wss://ws-feed.exchange.coinbase.com';
@@ -35,7 +38,10 @@ export class CoinbaseService extends AbstractExchangeService {
                 this.emitPriceUpdate(priceData);
             }
         } catch (error) {
-            console.error(`Error handling price update from ${this.name}:`, error);
+            logger.error({
+                msg: `Error handling price update from ${this.name}:`,
+                error,
+            });
         }
     }
 
@@ -47,7 +53,10 @@ export class CoinbaseService extends AbstractExchangeService {
                 this.handleOrderBookDelta(data);
             }
         } catch (error) {
-            console.error(`❌ Error handling Coinbase Order Book:`, error);
+            logger.error({
+                msg: `❌ Error handling Coinbase Order Book:`,
+                error,
+            });
         }
     }
 
@@ -94,7 +103,7 @@ export class CoinbaseService extends AbstractExchangeService {
         const state = this.orderBookStates.get(symbol);
 
         if (!state || !state.isInitialized) {
-            console.warn(`⚠️ Received l2update for ${symbol} before snapshot, ignoring`);
+            logger.warn(`⚠️ Received l2update for ${symbol} before snapshot, ignoring`);
             return;
         }
 
@@ -104,7 +113,7 @@ export class CoinbaseService extends AbstractExchangeService {
                 const size = parseFloat(sizeStr);
 
                 if (isNaN(price) || isNaN(size)) {
-                    console.warn(`⚠️ Invalid price or size: ${priceStr}, ${sizeStr}`);
+                    logger.warn(`⚠️ Invalid price or size: ${priceStr}, ${sizeStr}`);
                     continue;
                 }
 
@@ -132,7 +141,7 @@ export class CoinbaseService extends AbstractExchangeService {
         };
 
         ws.send(JSON.stringify(subscribeMessage));
-        console.log(`📡 Subscribed to Coinbase products: ${coinbaseProducts.join(', ')}`);
+        logger.info(`📡 Subscribed to Coinbase products: ${coinbaseProducts.join(', ')}`);
 
         this.setupHeartbeat(ws);
     }
