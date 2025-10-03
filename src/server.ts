@@ -54,8 +54,8 @@ class ArbitBotServer {
             : [];
 
         const arbitrageConfig: ArbitrageConfig = {
-            minProfitPercent: process.env.MIN_PROFIT_PERCENT,
-            maxInvestment: process.env.MAX_INVESTMENT,
+            minProfitPercent: Number(process.env.MIN_PROFIT_PERCENT),
+            maxInvestment: Number(process.env.MAX_INVESTMENT),
             enabledExchanges: exchanges,
             symbols: ['BTC/USDT', 'ETH/USDT', 'ADA/USDT']
         };
