@@ -2,15 +2,18 @@ import express, { Express } from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { config } from 'dotenv';
+import { createChildLogger } from './utils/logger';
 
 import { ArbitrageService } from './services/ArbitrageService';
 import { WebSocketService } from './services/WebSocketService';
 import { apiRoutes } from './routes/api';
 import { ExchangeConfig, ArbitrageConfig } from './types';
 import { ExchangeManager } from './services/exchanges/ExchangeManager';
-import {TriangularBybitService} from "./services/TriangularBybitService";
+import { TriangularBybitService } from './services/TriangularBybitService';
 
 config();
+
+const serverLogger = createChildLogger(__filename);
 
 class ArbitBotServer {
     private app: Express;
@@ -22,7 +25,7 @@ class ArbitBotServer {
 
     constructor() {
         this.app = express();
-        this.port = parseInt(process.env.PORT || '3000');
+        this.port = parseInt(process.env.API_PORT || '3000');
 
         this.setupMiddleware();
         this.initializeServices();
@@ -46,17 +49,21 @@ class ArbitBotServer {
             { name: 'bybit', sandbox: false },
         ];
 
+        const exchanges = process.env.ENABLED_EXCHANGES
+            ? process.env.ENABLED_EXCHANGES.split(',')
+            : [];
+
         const arbitrageConfig: ArbitrageConfig = {
-            minProfitPercent: 0.5,
-            maxInvestment: 1000,
-            enabledExchanges: ['binance', 'coinbase', 'kraken', 'okx', 'bybit'],
+            minProfitPercent: Number(process.env.MIN_PROFIT_PERCENT),
+            maxInvestment: Number(process.env.MAX_INVESTMENT),
+            enabledExchanges: exchanges,
             symbols: ['BTC/USDT', 'ETH/USDT', 'ADA/USDT']
         };
 
         this.exchangeManager = new ExchangeManager(exchangeConfigs);
         this.arbitrageService = new ArbitrageService(arbitrageConfig);
         this.triangularService = new TriangularBybitService();
-        this.wsService = new WebSocketService(8080);
+        this.wsService = new WebSocketService(Number(process.env.WEBSOCKET_PORT));
     }
 
     private setupRoutes(): void {
@@ -73,7 +80,7 @@ class ArbitBotServer {
         this.app.get('/ws-status', (_, res) => {
             res.json({
                 connected: this.wsService!.getClientCount(),
-                port: 8080,
+                port: process.env.WEBSOCKET_PORT,
                 status: 'running'
             });
         });
@@ -81,7 +88,7 @@ class ArbitBotServer {
         this.app.get('/', (_, res) => {
             res.render('index', {
                 title: 'ArbitBot - Crypto Arbitrage Scanner',
-                wsPort: 8080,
+                wsPort: process.env.WEBSOCKET_PORT,
                 apiBase: '/api'
             });
         });
@@ -132,14 +139,13 @@ class ArbitBotServer {
             })
 
             service.on('maxReconnectAttemptsReached', (exchangeName) => {
-                console.error(`❌ Exchange ${exchangeName} failed to reconnect after maximum attempts`);
+                serverLogger.error(`❌ Exchange ${exchangeName} failed to reconnect after maximum attempts`);
+
                 this.wsService!.broadcast('exchange_disconnected', {
                     exchange: exchangeName,
                     timestamp: Date.now()
                 });
             });
-
-            console.log(`🔗 Connected price updates for ${exchangeName}`);
         });
 
         this.arbitrageService!.on('opportunityFound', (opportunity) => {
@@ -166,18 +172,21 @@ class ArbitBotServer {
                 ]);
 
             this.app.listen(this.port, () => {
-                console.log(`🚀 Server running on port ${this.port}`);
-                console.log(`📊 Dashboard: http://localhost:${this.port}`);
+                serverLogger.info(`🚀 Server running http://localhost:${this.port}`);
             });
         } catch (error) {
-            console.error('❌ Failed to start server:', error);
+            serverLogger.error({
+                msg: '❌ Failed to start server',
+                error
+            });
+
             process.exit(1);
         }
     }
 
     private setupGracefulShutdown(): void {
         const shutdown = async (signal: string) => {
-            console.log(`\n📴 Received ${signal}, starting graceful shutdown...`);
+            serverLogger.info(`\n📴 Received ${signal}, starting graceful shutdown...`);
 
             try {
                 if (this.exchangeManager) {
@@ -188,10 +197,14 @@ class ArbitBotServer {
                     this.wsService.close();
                 }
 
-                console.log('✅ Graceful shutdown completed');
+                serverLogger.info('✅ Graceful shutdown completed');
                 process.exit(0);
             } catch (error) {
-                console.error('❌ Error during shutdown:', error);
+                serverLogger.error({
+                    msg: '❌ Error during shutdown',
+                    error,
+                });
+
                 process.exit(1);
             }
         };
@@ -200,12 +213,21 @@ class ArbitBotServer {
         process.on('SIGINT', () => shutdown('SIGINT'));
 
         process.on('uncaughtException', (error) => {
-            console.error('❌ Uncaught Exception:', error);
+            serverLogger.error({
+                msg: '❌ Uncaught Exception',
+                error,
+            });
+
             shutdown('uncaughtException');
         });
 
         process.on('unhandledRejection', (reason, promise) => {
-            console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+            serverLogger.error({
+                msg: '❌ Unhandled Rejection at',
+                error: reason,
+                promise
+            });
+
             shutdown('unhandledRejection');
         });
     }

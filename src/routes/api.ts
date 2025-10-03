@@ -4,6 +4,9 @@ import { ApiResponse } from '../types';
 import {ExchangeManager} from "../services/exchanges/ExchangeManager";
 import {WebSocketService} from "../services/WebSocketService";
 import {TriangularBybitService} from "../services/TriangularBybitService";
+import {createChildLogger} from "../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export function apiRoutes(
     arbitrageService: ArbitrageService,
@@ -13,8 +16,7 @@ export function apiRoutes(
 ): Router {
     const router = Router();
 
-    router.use((req, _, next) => {
-        console.log(`📡 API: ${req.method} ${req.path}`);
+    router.use((_, __, next) => {
         next();
     });
 
@@ -22,7 +24,7 @@ export function apiRoutes(
         res: Response,
         data: T,
         success: boolean = true,
-        error?: string
+        error?: string,
     ): void => {
         const response: ApiResponse<T> = {
             success,
@@ -49,7 +51,11 @@ export function apiRoutes(
                 filtered: filtered.length
             });
         } catch (error) {
-            console.error('Error fetching opportunities:', error);
+            logger.error({
+                msg: 'Error fetching opportunities:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch opportunities');
         }
     });
@@ -65,7 +71,11 @@ export function apiRoutes(
 
             sendResponse(res, opportunity);
         } catch (error) {
-            console.error('Error fetching opportunity:', error);
+            logger.error({
+                msg: 'Error fetching opportunity:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch opportunity');
         }
     });
@@ -77,7 +87,11 @@ export function apiRoutes(
 
             sendResponse(res, opportunities);
         } catch (error) {
-            console.error('Error fetching top opportunities:', error);
+            logger.error({
+                msg: 'Error fetching top opportunities:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch top opportunities');
         }
     });
@@ -103,7 +117,11 @@ export function apiRoutes(
                 lastUpdate: prices.length > 0 ? Math.max(...prices.map(p => p.timestamp)) : null
             });
         } catch (error) {
-            console.error('Error fetching prices:', error);
+            logger.error({
+                msg: 'Error fetching prices:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch prices');
         }
     });
@@ -119,7 +137,11 @@ export function apiRoutes(
 
             sendResponse(res, price);
         } catch (error) {
-            console.error('Error fetching price:', error);
+            logger.error({
+                msg: 'Error fetching price:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch price');
         }
     });
@@ -145,7 +167,11 @@ export function apiRoutes(
                 lastUpdate: orderBooks.length > 0 ? Math.max(...orderBooks.map(p => p.timestamp)) : null
             });
         } catch (error) {
-            console.error('Error fetching prices:', error);
+            logger.error({
+                msg: 'Error fetching prices:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch prices');
         }
     });
@@ -161,7 +187,11 @@ export function apiRoutes(
 
             sendResponse(res, orderbook);
         } catch (error) {
-            console.error('Error fetching orderbook:', error);
+            logger.error({
+                msg: 'Error fetching orderbook:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch orderbook');
         }
     });
@@ -192,7 +222,11 @@ export function apiRoutes(
 
             sendResponse(res, stats);
         } catch (error) {
-            console.error('Error fetching stats:', error);
+            logger.error({
+                msg: 'Error fetching stats:',
+                error,
+            });
+
             sendResponse(res, null, false, 'Failed to fetch stats');
         }
     });
@@ -278,7 +312,11 @@ export function apiRoutes(
     });
 
     router.use((error: Error, _: Request, res: Response, __: any) => {
-        console.error('API Error:', error);
+        logger.error({
+            msg: 'API Error:',
+            error,
+        });
+
         sendResponse(res, null, false, 'Internal server error');
     });
 

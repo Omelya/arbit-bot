@@ -1,6 +1,9 @@
 import WebSocket, { WebSocketServer } from 'ws';
 import { WSMessage, ArbitrageOpportunity } from '../types';
 import { EventEmitter } from 'events';
+import {createChildLogger} from "../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class WebSocketService extends EventEmitter {
     private wss: WebSocketServer;
@@ -16,7 +19,7 @@ export class WebSocketService extends EventEmitter {
 
     private setupServer(): void {
         this.wss.on('connection', (ws: WebSocket, request) => {
-            console.log(`🔌 Client connected from ${request.socket.remoteAddress}`);
+            logger.info(`🔌 Client connected from ${request.socket.remoteAddress}`);
             this.clients.add(ws);
 
             this.sendToClient(ws, {
@@ -30,25 +33,33 @@ export class WebSocketService extends EventEmitter {
                     const data = JSON.parse(message.toString()) as WSMessage;
                     this.handleMessage(ws, data);
                 } catch (error) {
-                    console.error('❌ Invalid message format:', error);
+                    logger.error({
+                        msg: '❌ Invalid message format:',
+                        error,
+                    });
+
                     this.sendError(ws, 'Invalid message format');
                 }
             });
 
             ws.on('close', (code: number, reason: Buffer) => {
                 this.clients.delete(ws);
-                console.log(`❌ Client disconnected: ${code} ${reason.toString()}`);
+                logger.warn(`❌ Client disconnected: ${code} ${reason.toString()}`);
             });
 
             ws.on('error', (error: Error) => {
-                console.error('WebSocket error:', error);
+                logger.error({
+                    msg: 'WebSocket error:',
+                    error,
+                });
+
                 this.clients.delete(ws);
             });
 
             this.sendLatestData(ws);
         });
 
-        console.log(`🚀 WebSocket server running on port ${this.port}`);
+        logger.info(`🚀 WebSocket server running on port ${this.port}`);
     }
 
     private handleMessage(ws: WebSocket, message: WSMessage): void {
@@ -118,7 +129,10 @@ export class WebSocketService extends EventEmitter {
                 timestamp: Date.now()
             });
         } catch (error) {
-            console.error('Error sending latest data:', error);
+            logger.error({
+                msg: 'Error sending latest data:',
+                error,
+            });
         }
     }
 
@@ -142,7 +156,7 @@ export class WebSocketService extends EventEmitter {
         });
 
         if (sentCount > 0) {
-            console.log(`📡 Broadcast ${type} to ${sentCount} clients`);
+            logger.info(`📡 Broadcast ${type} to ${sentCount} clients`);
         }
     }
 

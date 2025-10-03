@@ -1,6 +1,9 @@
 import { EventEmitter } from 'events';
 import {ArbitrageOpportunity, ArbitrageConfig, ExchangePrice, OrderBookMetrics, SlippageResult} from '../types';
 import * as crypto from "node:crypto";
+import {createChildLogger} from "../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class ArbitrageService extends EventEmitter {
     private opportunities: Map<string, ArbitrageOpportunity> = new Map();
@@ -162,7 +165,7 @@ export class ArbitrageService extends EventEmitter {
         if (!buyOrderBook || !sellOrderBook) return null;
 
         if (this.areOrderBooksStale(buyOrderBook, sellOrderBook)) {
-            console.warn(`Order Book too old for ${buyPrice.symbol}, exchanges ${buyOrderBook.exchange}, ${sellOrderBook.exchange}`);
+            logger.warn(`Order Book too old for ${buyPrice.symbol}, exchanges ${buyOrderBook.exchange}, ${sellOrderBook.exchange}`);
             return null;
         }
 
@@ -232,7 +235,7 @@ export class ArbitrageService extends EventEmitter {
             ((buySlippage.slippage + sellSlippage.slippage) / buyPrice.price) * PERCENT_MULTIPLIER;
 
         if (totalPercent > this.maxSlippagePercent) {
-            console.log(`Slippage too high: ${totalPercent.toFixed(2)}%`);
+            logger.warn(`Slippage too high: ${totalPercent.toFixed(2)}%`);
             return null;
         }
 

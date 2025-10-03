@@ -1,6 +1,9 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { ExchangePrice, OrderBookMetrics, OrderBookState } from '../../types';
+import {createChildLogger} from "../../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export abstract class AbstractExchangeService extends EventEmitter {
     protected abstract wsUrl: string;
@@ -21,14 +24,18 @@ export abstract class AbstractExchangeService extends EventEmitter {
 
     public async connectWebSockets(symbols: string[]): Promise<void> {
         if (this.isConnected) {
-            console.log(`WebSocket for ${this.name} already connected`);
+            logger.warn(`WebSocket for ${this.name} already connected`);
             return;
         }
 
         try {
             await this.createWSConnection(symbols);
         } catch (error) {
-            console.error(`Failed to connect WebSocket for ${this.name}:`, error);
+            logger.error({
+                msg: `Failed to connect WebSocket for ${this.name}:`,
+                error,
+            });
+
             throw error;
         }
     }
@@ -47,7 +54,7 @@ export abstract class AbstractExchangeService extends EventEmitter {
             this.ws = null;
         }
 
-        console.log(`🔌 Disconnected from ${this.name} WebSocket`);
+        logger.info(`🔌 Disconnected from ${this.name} WebSocket`);
     }
 
     public getConnectionStatus(): boolean {
@@ -67,7 +74,7 @@ export abstract class AbstractExchangeService extends EventEmitter {
 
                 this.ws.on('open', () => {
                     clearTimeout(connectionTimeout);
-                    console.log(`🔌 Connected to ${this.name} WebSocket`);
+                    logger.info(`🔌 Connected to ${this.name} WebSocket`);
                     this.isConnected = true;
                     this.reconnectAttempts = 0;
 
@@ -84,19 +91,22 @@ export abstract class AbstractExchangeService extends EventEmitter {
                         const parsed = JSON.parse(data.toString());
                         this.handleMessage(parsed);
                     } catch (error) {
-                        console.error(`Error parsing message from ${this.name}:`, error);
+                        logger.error({
+                            msg: `Error parsing message from ${this.name}:`,
+                            error,
+                        });
                     }
                 });
 
                 this.ws.on('close', (code, reason) => {
                     clearTimeout(connectionTimeout);
                     this.isConnected = false;
-                    console.log(`❌ Disconnected from ${this.name} WebSocket (Code: ${code}, Reason: ${reason?.toString()})`);
+                    logger.error(`❌ Disconnected from ${this.name} WebSocket (Code: ${code}, Reason: ${reason?.toString()})`);
 
                     if (this.reconnectAttempts < this.maxReconnectAttempts) {
                         this.scheduleReconnect(symbols);
                     } else {
-                        console.error(`❌ Max reconnection attempts reached for ${this.name}`);
+                        logger.error(`❌ Max reconnection attempts reached for ${this.name}`);
                         this.emit('maxReconnectAttemptsReached', this.name);
                     }
 
@@ -112,7 +122,10 @@ export abstract class AbstractExchangeService extends EventEmitter {
 
                 this.ws.on('error', (error) => {
                     clearTimeout(connectionTimeout);
-                    console.error(`❌ WebSocket error for ${this.name}:`, error);
+                    logger.error({
+                        msg: `❌ WebSocket error for ${this.name}:`,
+                        error,
+                    });
 
                     if (!this.isConnected) {
                         reject(error);
@@ -124,7 +137,6 @@ export abstract class AbstractExchangeService extends EventEmitter {
                         this.ws.pong(data);
                     }
                 });
-
             } catch (error) {
                 reject(error);
             }
@@ -135,13 +147,16 @@ export abstract class AbstractExchangeService extends EventEmitter {
         this.reconnectAttempts++;
         const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
-        console.log(`🔄 Scheduling reconnect for ${this.name} (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`);
+        logger.info(`🔄 Scheduling reconnect for ${this.name} (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`);
 
         setTimeout(async () => {
             try {
                 await this.createWSConnection(symbols);
             } catch (error) {
-                console.error(`❌ Reconnection failed for ${this.name}:`, error);
+                logger.error({
+                    msg: `❌ Reconnection failed for ${this.name}:`,
+                    error,
+                });
             }
         }, delay);
     }
@@ -227,9 +242,9 @@ export abstract class AbstractExchangeService extends EventEmitter {
 
             ws.send(JSON.stringify(message));
 
-            console.log(
+            logger.info(
                 `📡 [${this.name}] Subscription chunk ${chunkNumber}/${totalChunks}: ` +
-                `${chunk.length} topics`
+                `${chunk.length} topics`,
             );
         }
     }

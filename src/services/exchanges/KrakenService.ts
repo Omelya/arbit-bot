@@ -2,6 +2,9 @@ import {AbstractExchangeService} from './AbstractExchangeService';
 import WebSocket from 'ws';
 import {ExchangePrice, OrderBookState} from '../../types';
 import {KrakenOrderBookTopic, KrakenTickerTopic, KrakenTopicName, KrakenTopicType} from "../../types/kraken";
+import {createChildLogger} from "../../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class KrakenService extends AbstractExchangeService {
     protected wsUrl: string = 'wss://ws.kraken.com/v2';
@@ -32,7 +35,10 @@ export class KrakenService extends AbstractExchangeService {
                 });
             }
         } catch (error) {
-            console.error(`Error handling price update from ${this.name}:`, error);
+            logger.error({
+                msg: `Error handling price update from ${this.name}:`,
+                error,
+            });
         }
     }
 
@@ -56,7 +62,10 @@ export class KrakenService extends AbstractExchangeService {
                 }
             }
         } catch (error) {
-            console.error(`❌ Error handling Kraken Order Book:`, error);
+            logger.error({
+                msg: `❌ Error handling Kraken Order Book:`,
+                error,
+            });
         }
     }
 
@@ -100,7 +109,7 @@ export class KrakenService extends AbstractExchangeService {
         const state = this.orderBookStates.get(symbol);
 
         if (!state || !state.isInitialized) {
-            console.warn(`⚠️ Received update for ${symbol} before snapshot`);
+            logger.warn(`⚠️ Received update for ${symbol} before snapshot`);
             return;
         }
 
@@ -156,7 +165,7 @@ export class KrakenService extends AbstractExchangeService {
             },
         }));
 
-        console.log(`📡 Subscribed to Kraken pairs: ${symbols.join(', ')}`);
+        logger.info(`📡 Subscribed to Kraken pairs: ${symbols.join(', ')}`);
     }
 
     private normalizePrice(data: KrakenTickerTopic): ExchangePrice[] | null {
@@ -181,7 +190,6 @@ export class KrakenService extends AbstractExchangeService {
 
     private parseKrakenTimestamp(timestamp: string): number {
         if (!timestamp) {
-            console.warn('Empty timestamp, using current time');
             return Date.now();
         }
 
@@ -190,7 +198,11 @@ export class KrakenService extends AbstractExchangeService {
         const time = new Date(truncated).getTime();
 
         if (isNaN(time)) {
-            console.error('Invalid Kraken timestamp:', timestamp);
+            logger.error({
+                msg: 'Invalid Kraken timestamp:',
+                timestamp,
+            });
+
             return Date.now();
         }
 

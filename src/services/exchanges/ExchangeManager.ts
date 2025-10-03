@@ -6,6 +6,9 @@ import {KrakenService} from "./KrakenService";
 import {CoinbaseService} from "./CoinbaseService";
 import {OkxService} from "./OkxService";
 import {BybitService} from "./BybitService";
+import {createChildLogger} from "../../utils/logger";
+
+const logger = createChildLogger(__filename);
 
 export class ExchangeManager {
     private ccxtExchanges: Map<string, Exchange> = new Map();
@@ -21,7 +24,10 @@ export class ExchangeManager {
             try {
                 await service.connectWebSockets(symbols);
             } catch (error) {
-                console.error(`Failed to connect WebSocket for ${name}:`, error);
+                logger.error({
+                    msg: `Failed to connect WebSocket for ${name}:`,
+                    error,
+                });
             }
         });
     }
@@ -30,7 +36,7 @@ export class ExchangeManager {
         const exchange = this.ccxtExchanges.get(exchangeName);
 
         if (!exchange) {
-            console.warn(`Exchange ${exchangeName} not found`);
+            logger.warn(`Exchange ${exchangeName} not found`);
             return null;
         }
 
@@ -44,7 +50,11 @@ export class ExchangeManager {
                 datetime: orderbook.datetime || new Date().toISOString()
             };
         } catch (error) {
-            console.error(`Error fetching orderbook for ${symbol} on ${exchangeName}:`, error);
+            logger.error({
+                msg: `Error fetching orderbook for ${symbol} on ${exchangeName}:`,
+                error,
+            });
+
             return null;
         }
     }
@@ -60,9 +70,11 @@ export class ExchangeManager {
 
         try {
             await Promise.all(cleanupPromises);
-            console.log('✅ All exchange services cleaned up');
         } catch (error) {
-            console.error('❌ Error during cleanup:', error);
+            logger.error({
+                msg: '❌ Error during cleanup:',
+                error,
+            });
         }
     }
 
@@ -71,7 +83,7 @@ export class ExchangeManager {
             try {
                 const ExchangeClass = ccxt[config.name as keyof typeof ccxt] as any;
                 if (!ExchangeClass) {
-                    console.warn(`❌ Exchange ${config.name} not supported by ccxt`);
+                    logger.warn(`❌ Exchange ${config.name} not supported by ccxt`);
                     return;
                 }
 
@@ -86,9 +98,11 @@ export class ExchangeManager {
                 });
 
                 this.ccxtExchanges.set(config.name, exchange);
-                console.log(`✅ Initialized ccxt ${config.name} exchange`);
             } catch (error) {
-                console.error(`❌ Failed to initialize ccxt ${config.name}:`, error);
+                logger.error({
+                    msg: `❌ Failed to initialize ccxt ${config.name}:`,
+                    error,
+                });
             }
         });
     }
@@ -105,16 +119,18 @@ export class ExchangeManager {
         this.configs.forEach(config => {
             const ServiceClass = serviceMap[config.name];
             if (!ServiceClass) {
-                console.warn(`❌ Service for ${config.name} not implemented`);
+                logger.warn(`❌ Service for ${config.name} not implemented`);
                 return;
             }
 
             try {
                 const service = new ServiceClass();
                 this.exchangeServices.set(config.name, service);
-                console.log(`✅ Initialized ${config.name} service`);
             } catch (error) {
-                console.error(`❌ Failed to initialize ${config.name} service:`, error);
+                logger.error({
+                    msg: `❌ Failed to initialize ${config.name} service:`,
+                    error,
+                });
             }
         });
     }
