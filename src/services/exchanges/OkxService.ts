@@ -1,7 +1,7 @@
-import {AbstractExchangeService} from "./AbstractExchangeService";
-import WebSocket from "ws";
-import {ExchangePrice, OrderBookState} from "../../types";
-import {OkxOrderBookTopic, OkxTickerTopic, OkxTopicName} from "../../types/okx";
+import {AbstractExchangeService} from './AbstractExchangeService';
+import WebSocket from 'ws';
+import { ExchangePrice } from '../../types';
+import { OkxOrderBookTopic, OkxTickerTopic, OkxTopicName, OkxTopicType } from '../../types/okx';
 
 export class OkxService extends AbstractExchangeService {
     protected name: string = 'okx';
@@ -18,7 +18,7 @@ export class OkxService extends AbstractExchangeService {
             this.handlePriceUpdate(data);
         }
 
-        if (data.arg?.channel === OkxTopicName.ORDERBOOK_5) {
+        if (data.arg?.channel === OkxTopicName.ORDERBOOK) {
             this.handleOrderBookMessage(data);
         }
     }
@@ -37,7 +37,7 @@ export class OkxService extends AbstractExchangeService {
     }
 
     private handleOrderBookMessage(message: OkxOrderBookTopic): void {
-        const { data, arg } = message;
+        const { data, arg, action } = message;
         const instId = arg?.instId;
 
         if (!instId) {
@@ -50,21 +50,45 @@ export class OkxService extends AbstractExchangeService {
         try {
             const bookData = data[0];
 
-            const state: OrderBookState = {
-                symbol,
-                bids: new Map(),
-                asks: new Map(),
-                lastUpdateId: bookData.seqId || 0,
-                timestamp: parseInt(bookData.ts) || Date.now(),
-                isInitialized: true
-            };
+            let state = this.orderBookStates.get(symbol);
+
+            if (action === OkxTopicType.SNAPSHOT) {
+                state = {
+                    symbol,
+                    bids: new Map(),
+                    asks: new Map(),
+                    lastUpdateId: bookData.seqId || 0,
+                    timestamp: parseInt(bookData.ts) || Date.now(),
+                    isInitialized: true
+                };
+            } else {
+                if (!state) {
+                    console.warn(`⚠️ Received update for ${symbol} before snapshot, creating new state`);
+                    state = {
+                        symbol,
+                        bids: new Map(),
+                        asks: new Map(),
+                        lastUpdateId: 0,
+                        timestamp: Date.now(),
+                        isInitialized: false
+                    };
+                }
+
+                state.lastUpdateId = bookData.seqId || state.lastUpdateId;
+                state.timestamp = parseInt(bookData.ts) || Date.now();
+            }
 
             if (bookData.bids && Array.isArray(bookData.bids)) {
                 for (const [priceStr, sizeStr] of bookData.bids) {
                     const price = parseFloat(priceStr);
                     const size = parseFloat(sizeStr);
-                    if (!isNaN(price) && !isNaN(size) && size > 0) {
+
+                    if (isNaN(price)) continue;
+
+                    if (!isNaN(size) && size > 0) {
                         state.bids.set(price, size);
+                    } else {
+                        state.bids.delete(price);
                     }
                 }
             }
@@ -73,8 +97,13 @@ export class OkxService extends AbstractExchangeService {
                 for (const [priceStr, sizeStr] of bookData.asks) {
                     const price = parseFloat(priceStr);
                     const size = parseFloat(sizeStr);
-                    if (!isNaN(price) && !isNaN(size) && size > 0) {
+
+                    if (isNaN(price)) continue;
+
+                    if (!isNaN(size) && size > 0) {
                         state.asks.set(price, size);
+                    } else {
+                        state.asks.delete(price);
                     }
                 }
             }
@@ -93,7 +122,7 @@ export class OkxService extends AbstractExchangeService {
         }));
 
         const bookArgs = symbols.map(symbol => ({
-            channel: 'books5',
+            channel: 'books',
             instId: this.normalizeSymbol(symbol),
         }));
 

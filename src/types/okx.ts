@@ -1,8 +1,9 @@
 export interface OkxOrderBookTopic {
     arg: {
-        channel: OkxTopicName.ORDERBOOK_5;
+        channel: OkxTopicName.ORDERBOOK;
         instId: string;
     },
+    action: OkxTopicType,
     data: {
         asks: [string, string, string, string][];
         bids: [string, string, string, string][];
@@ -38,6 +39,11 @@ export interface OkxTickerTopic {
 }
 
 export enum OkxTopicName {
-    ORDERBOOK_5 = 'books5',
+    ORDERBOOK = 'books',
     TICKER = 'tickers',
+}
+
+export enum OkxTopicType {
+    UPDATE = 'update',
+    SNAPSHOT = 'snapshot',
 }
