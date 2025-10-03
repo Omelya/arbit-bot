@@ -1,56 +1,16 @@
 import { EventEmitter } from 'events';
 import { ExchangePrice, OrderBookMetrics } from '../types';
+import { PriceCache, TriangularConfig, TriangularOpportunity, TriangularPath } from '../types/triangular';
 import * as crypto from 'node:crypto';
-
-interface TriangularPath {
-    symbols: string[];
-    directions: ('buy' | 'sell')[];
-    minAmount: number;
-    description: string;
-}
-
-interface TriangularOpportunity {
-    id: string;
-    exchange: 'bybit';
-    path: string[];
-    directions: ('buy' | 'sell')[];
-    prices: number[];
-    effectivePrices: number[];
-    startAmount: number;
-    endAmount: number;
-    profitPercent: number;
-    profitUSDT: number;
-    fees: {
-        total: number;
-        perTrade: number[];
-    };
-    confidence: number;
-    executionTime: number;
-    slippage: {
-        total: number;
-        perTrade: number[];
-    };
-    timestamp: Date;
-    valid: boolean;
-}
-
-interface PriceCache {
-    price: ExchangePrice;
-    orderBook?: OrderBookMetrics;
-}
 
 export class TriangularBybitService extends EventEmitter {
     private priceCache: Map<string, PriceCache> = new Map();
     private opportunities: Map<string, TriangularOpportunity> = new Map();
     private lastCheckTime: Map<string, number> = new Map();
 
-    private readonly minProfit = 0.5;
     private readonly maxPriceAge = 2000;
-    private readonly bybitMakerFee = 0.001;
     private readonly bybitTakerFee = 0.001;
     private readonly checkThrottle = 100;
-    private readonly maxSlippage = 0.5;
-    private readonly minConfidence = 70;
 
     private readonly paths: TriangularPath[] = [
         {
@@ -79,7 +39,7 @@ export class TriangularBybitService extends EventEmitter {
         },
     ];
 
-    constructor() {
+    constructor(private config: TriangularConfig) {
         super();
         this.startCleanupInterval();
     }
@@ -143,8 +103,8 @@ export class TriangularBybitService extends EventEmitter {
         if (!opportunity || !opportunity.valid) return;
 
         if (
-            opportunity.profitPercent >= this.minProfit &&
-            opportunity.confidence >= this.minConfidence
+            opportunity.profitPercent >= this.config.minProfitPercent &&
+            opportunity.confidence >= this.config.minConfidence
         ) {
             this.addOpportunity(opportunity);
             this.emit('triangularOpportunity', opportunity);
@@ -189,13 +149,17 @@ export class TriangularBybitService extends EventEmitter {
             const effectivePrice = this.calculateEffectivePrice(
                 cached,
                 direction,
-                amount
+                amount,
             );
 
             if (!effectivePrice) return null;
 
             effectivePrices.push(effectivePrice.price);
             slippagePerTrade.push(effectivePrice.slippage);
+
+            if (effectivePrice.slippage > this.config.maxSlippagePerTrade) {
+                return null;
+            }
 
             if (direction === 'buy') {
                 amount = amount / effectivePrice.price;
@@ -216,11 +180,11 @@ export class TriangularBybitService extends EventEmitter {
         const confidence = this.calculateConfidence(
             pricesData,
             slippagePerTrade,
-            profitPercent
+            profitPercent,
         );
 
         const totalSlippage = slippagePerTrade.reduce((sum, s) => sum + s, 0);
-        if (totalSlippage > this.maxSlippage) return null;
+        if (totalSlippage > this.config.maxSlippage) return null;
 
         const executionTime = Date.now() - startTime;
 
@@ -246,7 +210,7 @@ export class TriangularBybitService extends EventEmitter {
                 perTrade: slippagePerTrade.map(s => Number(s.toFixed(4)))
             },
             timestamp: new Date(),
-            valid: true
+            valid: true,
         };
     }
 
@@ -329,7 +293,7 @@ export class TriangularBybitService extends EventEmitter {
 
         // 2. Фактор slippage (максимум -30)
         const totalSlippage = slippagePerTrade.reduce((sum, s) => sum + s, 0);
-        const slippagePenalty = (totalSlippage / this.maxSlippage) * 30;
+        const slippagePenalty = (totalSlippage / this.config.maxSlippage) * 30;
         score -= slippagePenalty;
 
         // 3. Фактор прибутку (бонус до +20)
@@ -392,7 +356,7 @@ export class TriangularBybitService extends EventEmitter {
         pathsMonitored: number;
     } {
         const opportunities = this.getOpportunities();
-        const profitable = opportunities.filter(o => o.profitPercent > this.minProfit);
+        const profitable = opportunities.filter(o => o.profitPercent > this.config.minProfitPercent);
 
         return {
             totalOpportunities: opportunities.length,
