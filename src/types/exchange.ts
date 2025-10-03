@@ -10,6 +10,8 @@ export interface ExchangePrice {
 
 export interface ExchangeConfig {
     name: string;
+    cross: boolean;
+    triangular: boolean;
     apiKey?: string;
     secret?: string;
     passphrase?: string;

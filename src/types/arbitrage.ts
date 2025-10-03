@@ -1,3 +1,5 @@
+import {ExchangeConfig} from "./exchange";
+
 export interface ArbitrageOpportunity {
     id: string;
     symbol: string;
@@ -30,8 +32,12 @@ export interface ArbitrageOpportunity {
 export interface ArbitrageConfig {
     minProfitPercent: number;
     maxInvestment: number;
-    enabledExchanges: string[];
-    symbols: string[];
+    minConfidence: number;
+    slippageByLiquidity: {
+        high: number;
+        medium: number;
+        low: number;
+    }
 }
 
 export interface SlippageResult {
