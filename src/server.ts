@@ -22,6 +22,7 @@ const serverLogger = createChildLogger(__filename);
 class ArbitBotServer {
     private app: Express;
     private readonly port: number;
+    private readonly host: string;
     private exchangeManager?: ExchangeManager;
     private arbitrageService?: ArbitrageService;
     private triangularService?: TriangularBybitService;
@@ -30,6 +31,7 @@ class ArbitBotServer {
     constructor() {
         this.app = express();
         this.port = parseInt(process.env.API_PORT || '3000');
+        this.host = process.env.API_HOST || 'localhost';
 
         this.setupMiddleware();
         this.initializeServices();
@@ -175,8 +177,8 @@ class ArbitBotServer {
                     'LTC/BTC',
                 ]);
 
-            this.app.listen(this.port, () => {
-                serverLogger.info(`🚀 Server running http://localhost:${this.port}`);
+            this.app.listen(this.port, this.host, () => {
+                serverLogger.info(`🚀 Server running ${this.host}:${this.port}`);
             });
         } catch (error) {
             serverLogger.error({

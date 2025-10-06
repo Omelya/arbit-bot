@@ -14,6 +14,7 @@ declare global {
             SLIPPAGE_BY_LIQUIDITY_LOW: string;
             CROSS_MIN_NET_PROFIT: string;
             TRIANGULAR_MIN_NET_PROFIT: string;
+            API_HOST: string;
             API_PORT: string;
             WEBSOCKET_PORT: string;
         }
