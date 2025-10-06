@@ -108,7 +108,7 @@ export class ExchangeManager {
     }
 
     private initializeServices(): void {
-        const serviceMap: Record<string, new () => AbstractExchangeService> = {
+        const serviceMap: Record<string, new (crossEnabled: boolean, triangularEnabled: boolean) => AbstractExchangeService> = {
             binance: BinanceService,
             kraken: KrakenService,
             coinbase: CoinbaseService,
@@ -124,7 +124,10 @@ export class ExchangeManager {
             }
 
             try {
-                const service = new ServiceClass();
+                const service = new ServiceClass(
+                    config.cross,
+                    config.triangular,
+                );
                 this.exchangeServices.set(config.name, service);
             } catch (error) {
                 logger.error({

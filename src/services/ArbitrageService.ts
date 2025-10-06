@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
-import {ArbitrageOpportunity, ArbitrageConfig, ExchangePrice, OrderBookMetrics, SlippageResult} from '../types';
-import * as crypto from "node:crypto";
-import {createChildLogger} from "../utils/logger";
+import { ArbitrageOpportunity, ArbitrageConfig, ExchangePrice, OrderBookMetrics, SlippageResult } from '../types';
+import { createChildLogger } from '../utils/logger';
+import * as crypto from 'node:crypto';
 
 const logger = createChildLogger(__filename);
 
@@ -11,8 +11,6 @@ export class ArbitrageService extends EventEmitter {
     private orderBooks: Map<string, OrderBookMetrics> = new Map();
 
     private readonly minLiquidity: number = 1000;
-    private readonly minConfidence: number = 60;
-    private readonly maxSlippagePercent: number = 1.0;
     private readonly orderBookMaxAge: number = 10000;
 
     constructor(private config: ArbitrageConfig,) {
@@ -142,7 +140,7 @@ export class ArbitrageService extends EventEmitter {
             liquidity,
         );
 
-        if (metrics.confidence < this.minConfidence) return null;
+        if (metrics.confidence < this.config.minProfitPercent) return null;
 
         return this.buildOpportunity(
             buyPrice,
@@ -234,8 +232,14 @@ export class ArbitrageService extends EventEmitter {
         const totalPercent =
             ((buySlippage.slippage + sellSlippage.slippage) / buyPrice.price) * PERCENT_MULTIPLIER;
 
-        if (totalPercent > this.maxSlippagePercent) {
-            logger.warn(`Slippage too high: ${totalPercent.toFixed(2)}%`);
+        const liquidity = Math.min(
+            buyOrderBook.totalAskVolume * buyPrice.price,
+            sellOrderBook.totalBidVolume * sellPrice.price
+        );
+
+        const dynamicMaxSlippage = this.getMaxSlippageForLiquidity(liquidity);
+
+        if (totalPercent > dynamicMaxSlippage) {
             return null;
         }
 
@@ -457,7 +461,7 @@ export class ArbitrageService extends EventEmitter {
     private isOpportunityValid(opportunity: ArbitrageOpportunity): boolean {
         return (
             opportunity.profitPercentAfterSlippage >= this.config.minProfitPercent &&
-            opportunity.confidence >= this.minConfidence &&
+            opportunity.confidence >= this.config.minConfidence &&
             opportunity.liquidityScore >= 50 &&
             opportunity.netProfitAfterSlippage > 0
         );
@@ -517,6 +521,15 @@ export class ArbitrageService extends EventEmitter {
         }
 
         return null;
+    }
+
+    private getMaxSlippageForLiquidity(liquidity: number): number {
+        const slippage = this.config.slippageByLiquidity;
+
+        if (liquidity > 10000) return slippage.high;
+        if (liquidity <= 10000 || liquidity >= 1000) return slippage.medium;
+
+        return slippage.low;
     }
 
     private getKey(exchange: string, symbol: string): string {

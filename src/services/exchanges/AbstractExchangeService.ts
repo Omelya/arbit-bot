@@ -18,6 +18,13 @@ export abstract class AbstractExchangeService extends EventEmitter {
     protected maxReconnectAttempts: number = 5;
     protected reconnectDelay: number = 5000;
 
+    public constructor(
+        public crossEnabled: boolean,
+        public triangularEnabled: boolean,
+    ) {
+        super();
+    }
+
     protected abstract subscribeToSymbols(ws: WebSocket, symbols: string[]): void;
 
     protected abstract handleMessage(data: any): void;

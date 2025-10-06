@@ -7,9 +7,13 @@ import { createChildLogger } from './utils/logger';
 import { ArbitrageService } from './services/ArbitrageService';
 import { WebSocketService } from './services/WebSocketService';
 import { apiRoutes } from './routes/api';
-import { ExchangeConfig, ArbitrageConfig } from './types';
+import { ExchangeConfig as ExchangeConfigType, ArbitrageConfig } from './types';
 import { ExchangeManager } from './services/exchanges/ExchangeManager';
 import { TriangularBybitService } from './services/TriangularBybitService';
+import { ExchangeConfig } from './config/exchange';
+import { SlippageConfig } from './config/slippage';
+import { ProfitConfig } from './config/profit';
+import { TriangularConfig } from './types/triangular';
 
 config();
 
@@ -41,28 +45,24 @@ class ArbitBotServer {
     }
 
     private initializeServices(): void {
-        const exchangeConfigs: ExchangeConfig[] = [
-            { name: 'binance', sandbox: false },
-            { name: 'coinbase', sandbox: false },
-            { name: 'kraken', sandbox: false },
-            { name: 'okx', sandbox: false },
-            { name: 'bybit', sandbox: false },
-        ];
+        const exchangeConfigs: ExchangeConfigType[] = ExchangeConfig.exchanges;
 
-        const exchanges = process.env.ENABLED_EXCHANGES
-            ? process.env.ENABLED_EXCHANGES.split(',')
-            : [];
-
-        const arbitrageConfig: ArbitrageConfig = {
-            minProfitPercent: Number(process.env.MIN_PROFIT_PERCENT),
-            maxInvestment: Number(process.env.MAX_INVESTMENT),
-            enabledExchanges: exchanges,
-            symbols: ['BTC/USDT', 'ETH/USDT', 'ADA/USDT']
+        const crossConfig: ArbitrageConfig = {
+            minProfitPercent: SlippageConfig.minNetProfit.crossExchange,
+            maxInvestment: ProfitConfig.maxInvestment,
+            minConfidence: ProfitConfig.minConfidence,
+            slippageByLiquidity: SlippageConfig.crossExchange.byLiquidity,
         };
 
+        const triangularConfig: TriangularConfig = {
+            ...crossConfig,
+            maxSlippage: SlippageConfig.triangular.maxTotal,
+            maxSlippagePerTrade: SlippageConfig.triangular.maxPerTrade,
+        }
+
         this.exchangeManager = new ExchangeManager(exchangeConfigs);
-        this.arbitrageService = new ArbitrageService(arbitrageConfig);
-        this.triangularService = new TriangularBybitService();
+        this.arbitrageService = new ArbitrageService(crossConfig);
+        this.triangularService = new TriangularBybitService(triangularConfig);
         this.wsService = new WebSocketService(Number(process.env.WEBSOCKET_PORT));
     }
 
@@ -117,19 +117,23 @@ class ArbitBotServer {
     private connectServices(): void {
         const exchangeServices = this.exchangeManager!.getAllExchangeServices();
 
-        exchangeServices.forEach((service, exchangeName) => {
+        exchangeServices.forEach((service) => {
             service.on('priceUpdate', (item) => {
-                this.arbitrageService!.handlePriceUpdate(item);
+                if (service.crossEnabled) {
+                    this.arbitrageService!.handlePriceUpdate(item);
+                }
 
-                if (exchangeName === 'bybit') {
+                if (service.triangularEnabled) {
                     this.triangularService!.handlePriceUpdate(item);
                 }
             });
 
             service.on('orderBookUpdate', (item) => {
-                this.arbitrageService!.handleOrderBookUpdate(item);
+                if (service.crossEnabled) {
+                    this.arbitrageService!.handleOrderBookUpdate(item);
+                }
 
-                if (exchangeName === 'bybit') {
+                if (service.triangularEnabled) {
                     this.triangularService!.handleOrderBookUpdate(item);
                 }
             });
