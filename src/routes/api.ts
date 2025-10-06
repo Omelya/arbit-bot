@@ -5,6 +5,7 @@ import {ExchangeManager} from "../services/exchanges/ExchangeManager";
 import {WebSocketService} from "../services/WebSocketService";
 import {TriangularBybitService} from "../services/TriangularBybitService";
 import {createChildLogger} from "../utils/logger";
+import {AutoTradingService} from "../services/trading/AutoTradingService";
 
 const logger = createChildLogger(__filename);
 
@@ -13,6 +14,7 @@ export function apiRoutes(
     exchangeManager: ExchangeManager,
     triangularService: TriangularBybitService,
     wsService: WebSocketService,
+    autoTradingService: AutoTradingService,
 ): Router {
     const router = Router();
 
@@ -309,6 +311,41 @@ export function apiRoutes(
             data: opportunity,
             timestamp: Date.now()
         });
+    });
+
+    router.post('/trading/enable', (_, res) => {
+        autoTradingService!.enableTrading();
+        res.json({ success: true, message: 'Trading enabled' });
+    });
+
+    router.post('/trading/disable', (_, res) => {
+        autoTradingService!.disableTrading();
+        res.json({ success: true, message: 'Trading disabled' });
+    });
+
+    router.post('/trading/cross-exchange/enable', (_, res) => {
+        autoTradingService!.enableCrossExchange();
+        res.json({ success: true, message: 'Trading enabled' });
+    });
+
+    router.post('/trading/cross-exchange/disable', (_, res) => {
+        autoTradingService!.disableCrossExchange();
+        res.json({ success: true, message: 'Trading disabled' });
+    });
+
+    router.post('/trading/triangular/enable', (_, res) => {
+        autoTradingService!.enableTriangular();
+        res.json({ success: true, message: 'Trading enabled' });
+    });
+
+    router.post('/trading/triangular/disable', (_, res) => {
+        autoTradingService!.disableTriangular();
+        res.json({ success: true, message: 'Trading disabled' });
+    });
+
+    router.get('/trading/stats', (_, res) => {
+        const stats = autoTradingService!.getStats();
+        res.json({ success: true, data: stats });
     });
 
     router.use((error: Error, _: Request, res: Response, __: any) => {

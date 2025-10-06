@@ -17,6 +17,18 @@ declare global {
             API_HOST: string;
             API_PORT: string;
             WEBSOCKET_PORT: string;
+            BINANCE_API_KEY: string;
+            BINANCE_SECRET: string;
+            BYBIT_API_KEY: string;
+            BYBIT_SECRET: string;
+            COINBASE_API_KEY: string;
+            COINBASE_SECRET: string;
+            COINBASE_PASSPHRASE: string;
+            KRAKEN_API_KEY: string;
+            KRAKEN_SECRET: string;
+            OKX_API_KEY: string;
+            OKX_SECRET: string;
+            OKX_PASSPHRASE: string;
         }
     }
 }

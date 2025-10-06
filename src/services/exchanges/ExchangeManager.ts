@@ -11,7 +11,7 @@ import {createChildLogger} from "../../utils/logger";
 const logger = createChildLogger(__filename);
 
 export class ExchangeManager {
-    private ccxtExchanges: Map<string, Exchange> = new Map();
+    public ccxtExchanges: Map<string, Exchange> = new Map();
     private exchangeServices: Map<string, AbstractExchangeService> = new Map();
 
     constructor(private configs: ExchangeConfig[]) {

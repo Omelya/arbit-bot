@@ -14,6 +14,8 @@ import { ExchangeConfig } from './config/exchange';
 import { SlippageConfig } from './config/slippage';
 import { ProfitConfig } from './config/profit';
 import { TriangularConfig } from './types/triangular';
+import { AutoTradingService } from './services/trading/AutoTradingService';
+import { TradingConfiguration } from './config/trading';
 
 config();
 
@@ -27,6 +29,7 @@ class ArbitBotServer {
     private arbitrageService?: ArbitrageService;
     private triangularService?: TriangularBybitService;
     private wsService?: WebSocketService;
+    private autoTradingService?: AutoTradingService;
 
     constructor() {
         this.app = express();
@@ -66,6 +69,11 @@ class ArbitBotServer {
         this.arbitrageService = new ArbitrageService(crossConfig);
         this.triangularService = new TriangularBybitService(triangularConfig);
         this.wsService = new WebSocketService(Number(process.env.WEBSOCKET_PORT));
+
+        this.autoTradingService = new AutoTradingService(
+            this.exchangeManager.ccxtExchanges,
+            TradingConfiguration,
+        );
     }
 
     private setupRoutes(): void {
@@ -76,6 +84,7 @@ class ArbitBotServer {
                 this.exchangeManager!,
                 this.triangularService!,
                 this.wsService!,
+                this.autoTradingService!,
             ),
         );
 
@@ -110,6 +119,9 @@ class ArbitBotServer {
                     '/api/orderbook',
                     '/api/triangular/opportunities',
                     '/api/triangular/stats',
+                    '/api/trading/enable',
+                    '/api/trading/disable',
+                    '/api/trading/stats',
                 ],
                 timestamp: Date.now()
             });
@@ -157,10 +169,36 @@ class ArbitBotServer {
         this.arbitrageService!.on('opportunityFound', (opportunity) => {
             this.wsService!.broadcast('arbitrage_opportunity', opportunity);
         });
+
+        this.arbitrageService!.on('opportunityFound', (opportunity) => {
+            this.wsService!.broadcast('arbitrage_opportunity', opportunity);
+
+            this.autoTradingService!.handleCrossExchangeOpportunity(opportunity);
+        });
+
+        this.triangularService!.on('triangularOpportunity', (opportunity) => {
+            this.wsService!.broadcast('triangular_opportunity', opportunity);
+
+            this.autoTradingService!.handleTriangularOpportunity(opportunity);
+        });
+
+        this.autoTradingService!.on('tradeCompleted', (trade) => {
+            this.wsService!.broadcast('trade_completed', trade);
+        });
+
+        this.autoTradingService!.on('tradeError', (error) => {
+            this.wsService!.broadcast('trade_error', error);
+        });
+
+        this.autoTradingService!.on('emergencyStop', (data) => {
+            this.wsService!.broadcast('emergency_stop', data);
+        });
     }
 
     public async start(): Promise<void> {
         try {
+            await this.autoTradingService!.initialize();
+
             this
                 .exchangeManager!
                 .createWebSockets([
@@ -179,6 +217,12 @@ class ArbitBotServer {
 
             this.app.listen(this.port, this.host, () => {
                 serverLogger.info(`🚀 Server running ${this.host}:${this.port}`);
+                serverLogger.info({
+                    msg: '⚙️ Auto-Trading Status',
+                    enabled: TradingConfiguration.enabled,
+                    crossExchange: TradingConfiguration.crossExchange.enabled,
+                    triangular: TradingConfiguration.triangular.enabled,
+                });
             });
         } catch (error) {
             serverLogger.error({
@@ -195,6 +239,10 @@ class ArbitBotServer {
             serverLogger.info(`\n📴 Received ${signal}, starting graceful shutdown...`);
 
             try {
+                if (this.autoTradingService) {
+                    await this.autoTradingService.cleanup();
+                }
+
                 if (this.exchangeManager) {
                     await this.exchangeManager.cleanup();
                 }
